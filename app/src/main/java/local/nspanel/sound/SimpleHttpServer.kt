@@ -12,6 +12,7 @@ class SimpleHttpServer(
     private val port: Int,
     private val onCountdownStartRequested: () -> Unit,
     private val onCountdownStopRequested: () -> Unit,
+    private val onDoorbellPlayRequested: () -> Unit,
     private val isCountdownRunning: () -> Boolean
 ) {
     private var serverSocket: ServerSocket? = null
@@ -100,6 +101,11 @@ class SimpleHttpServer(
                 method.equals("POST", ignoreCase = true) && path == "/countdown/stop" -> {
                     onCountdownStopRequested()
                     writeResponse(output, 200, "COUNTDOWN_STOPPED")
+                }
+
+                method.equals("POST", ignoreCase = true) && path == "/doorbell/play" -> {
+                    onDoorbellPlayRequested()
+                    writeResponse(output, 200, "DOORBELL_PLAYED")
                 }
 
                 else -> {

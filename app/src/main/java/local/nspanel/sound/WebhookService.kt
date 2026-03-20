@@ -17,8 +17,12 @@ import androidx.core.app.NotificationCompat
 class WebhookService : Service() {
 
     private var soundPool: SoundPool? = null
+
     private var beepSoundId: Int = 0
-    private var soundLoaded: Boolean = false
+    private var doorbellSoundId: Int = 0
+
+    private var beepLoaded: Boolean = false
+    private var doorbellLoaded: Boolean = false
 
     private var server: SimpleHttpServer? = null
 
@@ -52,6 +56,7 @@ class WebhookService : Service() {
             port = SERVER_PORT,
             onCountdownStartRequested = { startCountdown() },
             onCountdownStopRequested = { stopCountdown() },
+            onDoorbellPlayRequested = { playDoorbellOnce() },
             isCountdownRunning = { countdownRunning }
         )
         server?.start()
@@ -64,27 +69,46 @@ class WebhookService : Service() {
             .build()
 
         soundPool = SoundPool.Builder()
-            .setMaxStreams(1)
+            .setMaxStreams(2)
             .setAudioAttributes(attrs)
             .build()
 
         soundPool?.setOnLoadCompleteListener { _, sampleId, status ->
-            if (status == 0 && sampleId == beepSoundId) {
-                soundLoaded = true
+            if (status == 0) {
+                if (sampleId == beepSoundId) {
+                    beepLoaded = true
+                }
+                if (sampleId == doorbellSoundId) {
+                    doorbellLoaded = true
+                }
             }
         }
 
         beepSoundId = soundPool?.load(this, R.raw.beep, 1) ?: 0
+        doorbellSoundId = soundPool?.load(this, R.raw.doorbell, 1) ?: 0
     }
 
     private fun playBeepOnce() {
-        if (!soundLoaded) return
+        if (!beepLoaded) return
 
         soundPool?.play(
             beepSoundId,
             1.0f,
             1.0f,
             1,
+            0,
+            1.0f
+        )
+    }
+
+    private fun playDoorbellOnce() {
+        if (!doorbellLoaded) return
+
+        soundPool?.play(
+            doorbellSoundId,
+            1.0f,
+            1.0f,
+            2,
             0,
             1.0f
         )
@@ -134,13 +158,8 @@ class WebhookService : Service() {
 
     private fun getPrefs() = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun getMaxCountdownDurationSeconds(): Int {
+    private fun getMaxCountdownDurationSeconds(): Int {
         return getPrefs().getInt(KEY_MAX_COUNTDOWN_SECONDS, DEFAULT_MAX_COUNTDOWN_SECONDS)
-    }
-
-    fun setMaxCountdownDurationSeconds(seconds: Int) {
-        val safeValue = seconds.coerceIn(5, 600)
-        getPrefs().edit().putInt(KEY_MAX_COUNTDOWN_SECONDS, safeValue).apply()
     }
 
     override fun onDestroy() {

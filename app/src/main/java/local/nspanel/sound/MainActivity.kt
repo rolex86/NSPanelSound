@@ -3,7 +3,6 @@ package local.nspanel.sound
 import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
-import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -47,6 +46,7 @@ class MainActivity : ComponentActivity() {
                 Endpoints:
                 POST /countdown/start
                 POST /countdown/stop
+                POST /doorbell/play
                 GET  /health
                 GET  /status
             """.trimIndent()
