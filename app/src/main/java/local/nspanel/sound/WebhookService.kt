@@ -4,8 +4,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.media.AudioAttributes
 import android.media.SoundPool
 import android.os.Build
@@ -29,7 +29,15 @@ class WebhookService : Service() {
     @Volatile
     private var countdownRunning: Boolean = false
 
+    @Volatile
+    private var serverStatusText: String = "Starting server..."
+
     private val handler = Handler(Looper.getMainLooper())
+    private val prefsChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key in AppConfig.NOTIFICATION_RELEVANT_KEYS) {
+            refreshNotification()
+        }
+    }
 
     private val beepLoopRunnable = object : Runnable {
         override fun run() {
@@ -51,9 +59,18 @@ class WebhookService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification())
 
         initSoundPool()
+        getPrefs().registerOnSharedPreferenceChangeListener(prefsChangeListener)
 
         server = SimpleHttpServer(
-            port = SERVER_PORT,
+            port = AppConfig.SERVER_PORT,
+            onServerStarted = {
+                serverStatusText = "Server running"
+                refreshNotification()
+            },
+            onServerError = { details ->
+                serverStatusText = "Server error: $details"
+                refreshNotification()
+            },
             onCountdownStartRequested = { startCountdown() },
             onCountdownStopRequested = { stopCountdown() },
             onDoorbellPlayRequested = { playDoorbellOnce() },
@@ -91,27 +108,33 @@ class WebhookService : Service() {
     private fun playBeepOnce() {
         if (!beepLoaded) return
 
+        val volume = getCountdownVolume()
+
         soundPool?.play(
             beepSoundId,
-            1.0f,
-            1.0f,
+            volume,
+            volume,
             1,
             0,
             1.0f
         )
     }
 
-    private fun playDoorbellOnce() {
-        if (!doorbellLoaded) return
+    private fun playDoorbellOnce(): Boolean {
+        if (!doorbellLoaded) return false
 
-        soundPool?.play(
+        val volume = getDoorbellVolume()
+
+        val streamId = soundPool?.play(
             doorbellSoundId,
-            1.0f,
-            1.0f,
+            volume,
+            volume,
             2,
             0,
             1.0f
-        )
+        ) ?: 0
+
+        return streamId != 0
     }
 
     private fun startCountdown() {
@@ -134,13 +157,24 @@ class WebhookService : Service() {
 
     private fun buildNotification(): Notification {
         val maxDuration = getMaxCountdownDurationSeconds()
+        val countdownVolume = getCountdownVolumePercent()
+        val doorbellVolume = getDoorbellVolumePercent()
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("NSPanel Sound")
-            .setContentText("Webhook server běží na portu $SERVER_PORT | max: ${maxDuration}s")
+            .setContentText(
+                "$serverStatusText | port ${AppConfig.SERVER_PORT} | max: ${maxDuration}s | c: ${countdownVolume}% | d: ${doorbellVolume}%"
+            )
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
             .setOngoing(true)
             .build()
+    }
+
+    private fun refreshNotification() {
+        handler.post {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(NOTIFICATION_ID, buildNotification())
+        }
     }
 
     private fun createNotificationChannel() {
@@ -156,14 +190,42 @@ class WebhookService : Service() {
         }
     }
 
-    private fun getPrefs() = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private fun getPrefs() = AppConfig.prefs(this)
 
     private fun getMaxCountdownDurationSeconds(): Int {
-        return getPrefs().getInt(KEY_MAX_COUNTDOWN_SECONDS, DEFAULT_MAX_COUNTDOWN_SECONDS)
+        return getPrefs().getInt(
+            AppConfig.KEY_MAX_COUNTDOWN_SECONDS,
+            AppConfig.DEFAULT_MAX_COUNTDOWN_SECONDS
+        )
+    }
+
+    private fun getCountdownVolumePercent(): Int {
+        return getPrefs().getInt(
+            AppConfig.KEY_COUNTDOWN_VOLUME_PERCENT,
+            AppConfig.DEFAULT_COUNTDOWN_VOLUME_PERCENT
+        )
+            .coerceIn(0, 100)
+    }
+
+    private fun getDoorbellVolumePercent(): Int {
+        return getPrefs().getInt(
+            AppConfig.KEY_DOORBELL_VOLUME_PERCENT,
+            AppConfig.DEFAULT_DOORBELL_VOLUME_PERCENT
+        )
+            .coerceIn(0, 100)
+    }
+
+    private fun getCountdownVolume(): Float {
+        return getCountdownVolumePercent() / 100f
+    }
+
+    private fun getDoorbellVolume(): Float {
+        return getDoorbellVolumePercent() / 100f
     }
 
     override fun onDestroy() {
         stopCountdown()
+        getPrefs().unregisterOnSharedPreferenceChangeListener(prefsChangeListener)
         server?.stop()
         soundPool?.release()
         soundPool = null
@@ -175,11 +237,6 @@ class WebhookService : Service() {
     companion object {
         private const val CHANNEL_ID = "webhook_service"
         private const val NOTIFICATION_ID = 1001
-        private const val SERVER_PORT = 8765
         private const val BEEP_INTERVAL_MS = 1000L
-
-        private const val PREFS_NAME = "nspanel_sound_prefs"
-        private const val KEY_MAX_COUNTDOWN_SECONDS = "max_countdown_seconds"
-        private const val DEFAULT_MAX_COUNTDOWN_SECONDS = 60
     }
 }

@@ -18,12 +18,24 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = getSharedPreferences("nspanel_sound_prefs", MODE_PRIVATE)
-        val currentMaxSeconds = prefs.getInt("max_countdown_seconds", 60)
+        val prefs = AppConfig.prefs(this)
+
+        val currentMaxSeconds = prefs.getInt(
+            AppConfig.KEY_MAX_COUNTDOWN_SECONDS,
+            AppConfig.DEFAULT_MAX_COUNTDOWN_SECONDS
+        )
+        val currentCountdownVolume = prefs.getInt(
+            AppConfig.KEY_COUNTDOWN_VOLUME_PERCENT,
+            AppConfig.DEFAULT_COUNTDOWN_VOLUME_PERCENT
+        )
+        val currentDoorbellVolume = prefs.getInt(
+            AppConfig.KEY_DOORBELL_VOLUME_PERCENT,
+            AppConfig.DEFAULT_DOORBELL_VOLUME_PERCENT
+        )
 
         val ipAddress = getLocalIpAddress()
         val baseUrl = if (ipAddress != null) {
-            "http://$ipAddress:8765"
+            "http://$ipAddress:${AppConfig.SERVER_PORT}"
         } else {
             "IP nezjištěna"
         }
@@ -62,41 +74,77 @@ class MainActivity : ComponentActivity() {
         val maxInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
             setText(currentMaxSeconds.toString())
-            hint = "60"
+            hint = AppConfig.DEFAULT_MAX_COUNTDOWN_SECONDS.toString()
+        }
+
+        val countdownVolumeLabel = TextView(this).apply {
+            text = "Countdown hlasitost (%)"
+            textSize = 16f
+            setPadding(0, 24, 0, 0)
+        }
+
+        val countdownVolumeInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(currentCountdownVolume.toString())
+            hint = AppConfig.DEFAULT_COUNTDOWN_VOLUME_PERCENT.toString()
+        }
+
+        val doorbellVolumeLabel = TextView(this).apply {
+            text = "Doorbell hlasitost (%)"
+            textSize = 16f
+            setPadding(0, 24, 0, 0)
+        }
+
+        val doorbellVolumeInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(currentDoorbellVolume.toString())
+            hint = AppConfig.DEFAULT_DOORBELL_VOLUME_PERCENT.toString()
         }
 
         val saveButton = Button(this).apply {
             text = "Uložit"
             setOnClickListener {
-                val enteredValue = maxInput.text.toString().trim().toIntOrNull()
+                val enteredMaxSeconds = maxInput.text.toString().trim().toIntOrNull()
+                val enteredCountdownVolume = countdownVolumeInput.text.toString().trim().toIntOrNull()
+                val enteredDoorbellVolume = doorbellVolumeInput.text.toString().trim().toIntOrNull()
 
-                if (enteredValue == null) {
+                if (enteredMaxSeconds == null || enteredCountdownVolume == null || enteredDoorbellVolume == null) {
                     Toast.makeText(
                         this@MainActivity,
-                        "Zadej číslo.",
+                        "Vyplň všechna pole číslem.",
                         Toast.LENGTH_SHORT
                     ).show()
                     return@setOnClickListener
                 }
 
-                val safeValue = enteredValue.coerceIn(5, 600)
+                val safeMaxSeconds = enteredMaxSeconds.coerceIn(5, 600)
+                val safeCountdownVolume = enteredCountdownVolume.coerceIn(0, 100)
+                val safeDoorbellVolume = enteredDoorbellVolume.coerceIn(0, 100)
 
                 prefs.edit()
-                    .putInt("max_countdown_seconds", safeValue)
+                    .putInt(AppConfig.KEY_MAX_COUNTDOWN_SECONDS, safeMaxSeconds)
+                    .putInt(AppConfig.KEY_COUNTDOWN_VOLUME_PERCENT, safeCountdownVolume)
+                    .putInt(AppConfig.KEY_DOORBELL_VOLUME_PERCENT, safeDoorbellVolume)
                     .apply()
 
-                maxInput.setText(safeValue.toString())
+                maxInput.setText(safeMaxSeconds.toString())
+                countdownVolumeInput.setText(safeCountdownVolume.toString())
+                doorbellVolumeInput.setText(safeDoorbellVolume.toString())
 
                 Toast.makeText(
                     this@MainActivity,
-                    "Uloženo: ${safeValue}s",
+                    "Uloženo.",
                     Toast.LENGTH_SHORT
                 ).show()
             }
         }
 
         val hintText = TextView(this).apply {
-            text = "Rozsah: 5 až 600 sekund. Výchozí hodnota je 60 s."
+            text = """
+                Max délka: 5 až 600 s
+                Countdown hlasitost: 0 až 100 %
+                Doorbell hlasitost: 0 až 100 %
+            """.trimIndent()
             textSize = 14f
             setPadding(0, 16, 0, 0)
         }
@@ -105,6 +153,10 @@ class MainActivity : ComponentActivity() {
         root.addView(serverInfo)
         root.addView(maxLabel)
         root.addView(maxInput)
+        root.addView(countdownVolumeLabel)
+        root.addView(countdownVolumeInput)
+        root.addView(doorbellVolumeLabel)
+        root.addView(doorbellVolumeInput)
         root.addView(saveButton)
         root.addView(hintText)
 
@@ -138,4 +190,5 @@ class MainActivity : ComponentActivity() {
             null
         }
     }
+
 }

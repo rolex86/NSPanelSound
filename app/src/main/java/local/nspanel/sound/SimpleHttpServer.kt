@@ -1,5 +1,6 @@
 package local.nspanel.sound
 
+import android.util.Log
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStream
@@ -10,9 +11,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class SimpleHttpServer(
     private val port: Int,
+    private val onServerStarted: () -> Unit,
+    private val onServerError: (String) -> Unit,
     private val onCountdownStartRequested: () -> Unit,
     private val onCountdownStopRequested: () -> Unit,
-    private val onDoorbellPlayRequested: () -> Unit,
+    private val onDoorbellPlayRequested: () -> Boolean,
     private val isCountdownRunning: () -> Boolean
 ) {
     private var serverSocket: ServerSocket? = null
@@ -27,6 +30,7 @@ class SimpleHttpServer(
         executor.execute {
             try {
                 serverSocket = ServerSocket(port)
+                onServerStarted()
 
                 while (running.get()) {
                     val client = serverSocket?.accept() ?: break
@@ -34,7 +38,11 @@ class SimpleHttpServer(
                         handleClient(client)
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (running.get()) {
+                    Log.e(TAG, "HTTP server failed on port $port", e)
+                    onServerError(e.message ?: e.javaClass.simpleName)
+                }
             } finally {
                 stop()
             }
@@ -104,15 +112,19 @@ class SimpleHttpServer(
                 }
 
                 method.equals("POST", ignoreCase = true) && path == "/doorbell/play" -> {
-                    onDoorbellPlayRequested()
-                    writeResponse(output, 200, "DOORBELL_PLAYED")
+                    if (onDoorbellPlayRequested()) {
+                        writeResponse(output, 200, "DOORBELL_PLAYED")
+                    } else {
+                        writeResponse(output, 503, "DOORBELL_NOT_READY")
+                    }
                 }
 
                 else -> {
                     writeResponse(output, 404, "Not Found")
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to handle client request", e)
         } finally {
             try {
                 client.close()
@@ -131,6 +143,7 @@ class SimpleHttpServer(
             200 -> "OK"
             400 -> "Bad Request"
             404 -> "Not Found"
+            503 -> "Service Unavailable"
             else -> "OK"
         }
 
@@ -147,5 +160,9 @@ class SimpleHttpServer(
         output.write(headers)
         output.write(bodyBytes)
         output.flush()
+    }
+
+    companion object {
+        private const val TAG = "SimpleHttpServer"
     }
 }
